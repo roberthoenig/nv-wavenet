@@ -1,0 +1,5 @@
+python train.py -c config.json
+python generate.py -f generate_files.txt -c checkpoints/wavenet_2 -o generate
+mkdir data
+wget -A ".wav" -nd -r http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_clb_arctic/wav
+mkdir checkpoints

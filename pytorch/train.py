@@ -24,6 +24,9 @@
 #  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 # 
 # *****************************************************************************
+import warnings
+# warnings.simplefilter(action='ignore', category=FutureWarning)
+warnings.simplefilter(action='ignore', category=FutureWarning)
 import argparse
 import json
 import os
@@ -39,6 +42,11 @@ from torch.utils.data import DataLoader
 from wavenet import WaveNet
 from mel2samp_onehot import Mel2SampOnehot
 from utils import to_gpu
+
+from torch.utils.tensorboard import SummaryWriter
+import numpy as np
+
+writer = SummaryWriter()
 
 class CrossEntropyLoss(torch.nn.Module):
     def __init__(self):
@@ -73,7 +81,7 @@ def load_checkpoint(checkpoint_path, model, optimizer):
 def save_checkpoint(model, optimizer, learning_rate, iteration, filepath):
     print("Saving model and optimizer state at iteration {} to {}".format(
           iteration, filepath))
-    model_for_saving = WaveNet(**wavenet_config).cuda()
+    model_for_saving = WaveNet(**wavenet_config).cpu()
     model_for_saving.load_state_dict(model.state_dict())
     torch.save({'model': model_for_saving,
                 'iteration': iteration,
@@ -90,7 +98,7 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
     #=====END:   ADDED FOR DISTRIBUTED======
     
     criterion = CrossEntropyLoss()
-    model = WaveNet(**wavenet_config).cuda()
+    model = WaveNet(**wavenet_config).cpu()
 
     #=====START: ADDED FOR DISTRIBUTED======
     if num_gpus > 1:
@@ -132,19 +140,24 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
             model.zero_grad()
             
             x, y = batch
+            # print(x)
+            # print("shapes")
+            # print(x.shape, y.shape)
             x = to_gpu(x).float()
             y = to_gpu(y)
             x = (x, y)  # auto-regressive takes outputs as inputs
             y_pred = model(x)
             loss = criterion(y_pred, y)
-            if num_gpus > 1:
-                reduced_loss = reduce_tensor(loss.data, num_gpus)[0]
-            else:
-                reduced_loss = loss.data[0]
+            # if num_gpus > 1:
+            #     reduced_loss = reduce_tensor(loss.data, num_gpus)[0]
+            # else:
+            #     reduced_loss = loss.data[0]
             loss.backward()
             optimizer.step()
 
-            print("{}:\t{:.9f}".format(iteration, reduced_loss))
+            print("{}:\t{:.9f}".format(iteration, loss))
+            writer.add_scalar('Loss/train', loss, iteration)
+            writer.flush()
 
             if (iteration % iters_per_checkpoint == 0):
                 if rank == 0:

@@ -24,8 +24,11 @@
 # 
 # *****************************************************************************
 import torch
+import torch.nn.functional as F
 import wavenet
 import math
+import numpy as np
+import time
 
 class Conv(torch.nn.Module):
     """
@@ -42,7 +45,7 @@ class Conv(torch.nn.Module):
                                     kernel_size=kernel_size, stride=stride,
                                     dilation=dilation, bias=bias)
 
-        torch.nn.init.xavier_uniform(
+        torch.nn.init.xavier_uniform_(
             self.conv.weight, gain=torch.nn.init.calculate_gain(w_init_gain))
 
     def forward(self, signal):
@@ -52,22 +55,29 @@ class Conv(torch.nn.Module):
         return self.conv(signal)
 
 class WaveNet(torch.nn.Module):
-    def __init__(self, n_in_channels, n_layers, max_dilation,
-                 n_residual_channels, n_skip_channels, n_out_channels,
-                 n_cond_channels, upsamp_window, upsamp_stride):
+    def __init__(self,
+                 n_in_channels,
+                 n_layers,
+                 max_dilation,
+                 n_residual_channels,
+                 n_skip_channels,
+                 n_out_channels,):
+                #  n_cond_channels,
+                #  upsamp_window,
+                #  upsamp_stride):
         super(WaveNet, self).__init__()
 
-        self.upsample = torch.nn.ConvTranspose1d(n_cond_channels,
-                                                 n_cond_channels,
-                                                 upsamp_window,
-                                                 upsamp_stride)
+        # self.upsample = torch.nn.ConvTranspose1d(n_cond_channels,
+        #                                          n_cond_channels,
+        #                                          upsamp_window,
+        #                                          upsamp_stride)
         
         self.n_layers = n_layers
         self.max_dilation = max_dilation
         self.n_residual_channels = n_residual_channels 
         self.n_out_channels = n_out_channels
-        self.cond_layers = Conv(n_cond_channels, 2*n_residual_channels*n_layers,
-                                w_init_gain='tanh')
+        # self.cond_layers = Conv(n_cond_channels, 2*n_residual_channels*n_layers,
+        #                         w_init_gain='tanh')
         self.dilate_layers = torch.nn.ModuleList()
         self.res_layers = torch.nn.ModuleList()
         self.skip_layers = torch.nn.ModuleList()
@@ -100,24 +110,31 @@ class WaveNet(torch.nn.Module):
             self.skip_layers.append(skip_layer)
 
     def forward(self, forward_input):
-        features = forward_input[0]
+        # print("forward_input", forward_input)
+        # features = forward_input[0]
         forward_input = forward_input[1]
-        cond_input = self.upsample(features)
+        # print("forward_input.shape")
+        # print(forward_input.shape)
+        # print(forward_input[0])
+        # cond_input = self.upsample(features)
 
-        assert(cond_input.size(2) >= forward_input.size(1))
-        if cond_input.size(2) > forward_input.size(1):
-            cond_input = cond_input[:, :, :forward_input.size(1)]
+        # assert(cond_input.size(2) >= forward_input.size(1))
+        # if cond_input.size(2) > forward_input.size(1):
+            # cond_input = cond_input[:, :, :forward_input.size(1)]
        
         forward_input = self.embed(forward_input.long())
+        # print(forward_input.shape)
+        # print(forward_input[0])
+        # print(forward_input.shape)
         forward_input = forward_input.transpose(1, 2)
        
-        cond_acts = self.cond_layers(cond_input)
-        cond_acts = cond_acts.view(cond_acts.size(0), self.n_layers, -1, cond_acts.size(2))
+        # cond_acts = self.cond_layers(cond_input)
+        # cond_acts = cond_acts.view(cond_acts.size(0), self.n_layers, -1, cond_acts.size(2))
         for i in range(self.n_layers):
             in_act = self.dilate_layers[i](forward_input)
-            in_act = in_act + cond_acts[:,i,:,:]
-            t_act = torch.nn.functional.tanh(in_act[:, :self.n_residual_channels, :])
-            s_act = torch.nn.functional.sigmoid(in_act[:, self.n_residual_channels:, :])
+            in_act = in_act # + cond_acts[:,i,:,:]
+            t_act = torch.tanh(in_act[:, :self.n_residual_channels, :])
+            s_act = torch.sigmoid(in_act[:, self.n_residual_channels:, :])
             acts = t_act * s_act
             if i < len(self.res_layers):
                 res_acts = self.res_layers[i](acts)
@@ -132,6 +149,7 @@ class WaveNet(torch.nn.Module):
         output = self.conv_out(output)
         output = torch.nn.functional.relu(output, True)
         output = self.conv_end(output)
+        # print("output.shape", output.shape)
 
         # Remove last probabilities because they've seen all the data
         last = output[:, :, -1]
@@ -143,6 +161,57 @@ class WaveNet(torch.nn.Module):
         output = torch.cat((first, output), dim=2)
 
         return output
+
+    def generate(self,
+                 num_samples,
+                 first_samples=None,
+                 temperature=1.,
+                 receptive_field=None):
+        self.eval()
+        if receptive_field is None:
+            receptive_field = self.max_dilation * 2
+        if first_samples is None:
+            first_samples = torch.zeros([1], dtype=torch.float)
+        with torch.no_grad():
+            generated = torch.tensor(first_samples)
+
+        num_pad = receptive_field - generated.size(0)
+        if num_pad > 0:
+            generated = torch.cat((torch.zeros(num_pad), generated))
+            # generated = constant_pad_1d(generated, num_pad, pad_start=True)
+            print("pad zero")
+        # print("generated", generated)
+        # print("generated.shape", generated.shape)
+
+        start = time.time()
+        for i in range(num_samples):
+            if i%10 == 0 and i > 0:
+                etr = (((time.time() - start)/i) * (num_samples - i)) / (60)
+                print(f"Generated {i} samples. Estimated time remaining: {etr} minutes")
+            # input = Variable(torch.FloatTensor(1, self.classes, self.receptive_field).zero_())
+            # input = input.scatter_(1, generated[-self.receptive_field:].view(1, -1, self.receptive_field), 1.)
+            input = generated[-receptive_field:].view(1, receptive_field)
+
+            with torch.no_grad():
+                x = self((None, input))[:, :, -1].squeeze()
+
+            if temperature > 0:
+                x /= temperature
+                prob = F.softmax(x, dim=0)
+                prob = prob.cpu()
+                np_prob = prob.numpy()
+                x = np.random.choice(self.n_out_channels, p=np_prob)
+                # print("x:", x)
+                x = torch.tensor([x], dtype=torch.float)#np.array([x])
+            else:
+                x = torch.max(x, 0)[1].float()
+            generated = torch.cat((generated, x), 0)
+
+        # generated = (generated.double() / self.classes) * 2. - 1.
+        # mu_gen = mu_law_expansion(generated.double(), self.classes)
+        # print("mu_gen", mu_gen)
+        # self.train()
+        return generated
 
     def export_weights(self):
         """

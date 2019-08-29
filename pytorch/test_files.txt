@@ -1,0 +1,10 @@
+data/arctic_a0001.wav
+data/arctic_a0002.wav
+data/arctic_a0003.wav
+data/arctic_a0004.wav
+data/arctic_a0005.wav
+data/arctic_a0006.wav
+data/arctic_a0007.wav
+data/arctic_a0008.wav
+data/arctic_a0009.wav
+data/arctic_a0010.wav
