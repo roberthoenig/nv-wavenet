@@ -113,8 +113,7 @@ class WaveNet(torch.nn.Module):
         # print("forward_input", forward_input)
         # features = forward_input[0]
         forward_input = forward_input[1]
-        # print("forward_input.shape")
-        # print(forward_input.shape)
+        # print("forward_input.shape", forward_input.shape)
         # print(forward_input[0])
         # cond_input = self.upsample(features)
 
@@ -149,7 +148,6 @@ class WaveNet(torch.nn.Module):
         output = self.conv_out(output)
         output = torch.nn.functional.relu(output, True)
         output = self.conv_end(output)
-        # print("output.shape", output.shape)
 
         # Remove last probabilities because they've seen all the data
         last = output[:, :, -1]
@@ -159,7 +157,8 @@ class WaveNet(torch.nn.Module):
         # Replace probability for first value with 0's because we don't know
         first = last * 0.0
         output = torch.cat((first, output), dim=2)
-
+        # print("output.shape", output.shape)
+        # print("output", output)
         return output
 
     def generate(self,
@@ -179,7 +178,7 @@ class WaveNet(torch.nn.Module):
         if num_pad > 0:
             generated = torch.cat((torch.zeros(num_pad), generated))
             # generated = constant_pad_1d(generated, num_pad, pad_start=True)
-            print("pad zero")
+            # print("pad zero")
         # print("generated", generated)
         # print("generated.shape", generated.shape)
 

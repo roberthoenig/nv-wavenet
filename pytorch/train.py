@@ -32,6 +32,7 @@ import json
 import os
 import time
 import torch
+import torch.nn.functional as F
 
 #=====START: ADDED FOR DISTRIBUTED======
 from distributed import init_distributed, apply_gradient_allreduce, reduce_tensor
@@ -41,7 +42,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader
 from wavenet import WaveNet
 from mel2samp_onehot import Mel2SampOnehot
-from utils import to_gpu
+from utils import to_gpu, mu_law_decode_numpy
 
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
@@ -156,15 +157,17 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
             optimizer.step()
 
             print("{}:\t{:.9f}".format(iteration, loss))
-            writer.add_scalar('Loss/train', loss, iteration)
+            writer.add_scalar('Loss/train', loss, global_step=iteration)
             writer.flush()
 
             if (iteration % iters_per_checkpoint == 0):
-                if rank == 0:
-                    checkpoint_path = "{}/wavenet_{}".format(
-                        output_directory, iteration)
-                    save_checkpoint(model, optimizer, learning_rate, iteration,
-                                    checkpoint_path)
+                y_choice = y_pred[0].detach().cpu().transpose(0, 1)
+                y_prob = F.softmax(y_choice, dim=1)
+                y_prob_collapsed = torch.multinomial(y_prob, num_samples = 1).squeeze(1)
+                y_pred_audio = mu_law_decode_numpy(y_prob_collapsed.numpy(), model.n_out_channels)
+                writer.add_audio('Audio', y_pred_audio, global_step=iteration, sample_rate=data_config['sampling_rate'])
+                checkpoint_path = "{}/wavenet_{}".format(output_directory, iteration)
+                save_checkpoint(model, optimizer, learning_rate, iteration, checkpoint_path)
                      
             iteration += 1
 

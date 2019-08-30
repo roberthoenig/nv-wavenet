@@ -3,3 +3,7 @@ python generate.py -f generate_files.txt -c checkpoints/wavenet_2 -o generate
 mkdir data
 wget -A ".wav" -nd -r http://festvox.org/cmu_arctic/cmu_arctic/cmu_us_clb_arctic/wav
 mkdir checkpoints
+
+# change iters_per_checkpoint
+# change config.json in general...
+# change .cpu() to .cuda()
