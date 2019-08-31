@@ -29,6 +29,7 @@ import wavenet
 import math
 import numpy as np
 import time
+from utils import print_etr
 
 class Conv(torch.nn.Module):
     """
@@ -170,23 +171,21 @@ class WaveNet(torch.nn.Module):
         if receptive_field is None:
             receptive_field = self.max_dilation * 2
         if first_samples is None:
-            first_samples = torch.zeros([1], dtype=torch.float)
+            first_samples = torch.zeros([1], dtype=torch.long)
         with torch.no_grad():
             generated = torch.tensor(first_samples)
 
         num_pad = receptive_field - generated.size(0)
         if num_pad > 0:
             generated = torch.cat((torch.zeros(num_pad), generated))
-            # generated = constant_pad_1d(generated, num_pad, pad_start=True)
-            # print("pad zero")
         # print("generated", generated)
         # print("generated.shape", generated.shape)
 
         start = time.time()
         for i in range(num_samples):
             if i%10 == 0 and i > 0:
-                etr = (((time.time() - start)/i) * (num_samples - i)) / (60)
-                print(f"Generated {i} samples. Estimated time remaining: {etr} minutes")
+                print(f"Generated {i} samples.")
+                print_etr(start, total_iterations = num_samples, current_iteration = i + 1)
             # input = Variable(torch.FloatTensor(1, self.classes, self.receptive_field).zero_())
             # input = input.scatter_(1, generated[-self.receptive_field:].view(1, -1, self.receptive_field), 1.)
             input = generated[-receptive_field:].view(1, receptive_field)
@@ -196,14 +195,11 @@ class WaveNet(torch.nn.Module):
 
             if temperature > 0:
                 x /= temperature
-                prob = F.softmax(x, dim=0)
-                prob = prob.cpu()
-                np_prob = prob.numpy()
-                x = np.random.choice(self.n_out_channels, p=np_prob)
-                # print("x:", x)
-                x = torch.tensor([x], dtype=torch.float)#np.array([x])
+                prob = F.softmax(x, dim=0).cpu().numpy()
+                x = np.random.choice(self.n_out_channels, p=prob)
+                x = torch.tensor([x], dtype=torch.long)#np.array([x])
             else:
-                x = torch.max(x, 0)[1].float()
+                x = torch.max(x, 0)[1].long()
             generated = torch.cat((generated, x), 0)
 
         # generated = (generated.double() / self.classes) * 2. - 1.

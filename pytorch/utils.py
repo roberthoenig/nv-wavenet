@@ -28,6 +28,7 @@ import os
 import torch
 import numpy as np
 from scipy.io.wavfile import read
+import time
 MAX_WAV_VALUE = 32768.0
 
 def load_wav_to_torch(full_path):
@@ -88,3 +89,7 @@ def mu_law_encode(x, mu_quantization=256):
     x_mu = torch.sign(x) * torch.log1p(mu * torch.abs(x)) / scaling
     encoding = ((x_mu + 1) / 2 * mu + 0.5).long()
     return encoding
+
+def print_etr(start_time, total_iterations, current_iteration):
+    etr = (((time.time() - start_time)/current_iteration) * (total_iterations - current_iteration)) / (60)
+    print(f"Estimated time remaining: {etr} minutes")

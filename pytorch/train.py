@@ -42,7 +42,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader
 from wavenet import WaveNet
 from mel2samp_onehot import Mel2SampOnehot
-from utils import to_gpu, mu_law_decode_numpy
+from utils import to_gpu, mu_law_decode_numpy, print_etr
 
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
@@ -135,6 +135,7 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
     model.train()
     epoch_offset = max(0, int(iteration / len(train_loader)))
     # ================ MAIN TRAINNIG LOOP! ===================
+    start = time.time()
     for epoch in range(epoch_offset, epochs):
         print("Epoch: {}".format(epoch))
         for i, batch in enumerate(train_loader):
@@ -157,6 +158,12 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
             optimizer.step()
 
             print("{}:\t{:.9f}".format(iteration, loss))
+            print_etr(
+                start,
+                total_iterations = (epochs-epoch_offset)*len(train_loader),
+                current_iteration = (epochs-epoch_offset)*(epoch-epoch_offset) + i + 1
+            )
+            print(total_iterations, current_iteration)
             writer.add_scalar('Loss/train', loss, global_step=iteration)
             writer.flush()
 
