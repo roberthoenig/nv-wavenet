@@ -165,7 +165,7 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
             )
             print(total_iterations, current_iteration)
             writer.add_scalar('Loss/train', loss, global_step=iteration)
-            writer.flush()
+            # writer.flush()
 
             if (iteration % iters_per_checkpoint == 0):
                 y_choice = y_pred[0].detach().cpu().transpose(0, 1)
