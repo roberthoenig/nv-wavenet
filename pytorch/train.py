@@ -43,6 +43,7 @@ from torch.utils.data import DataLoader
 from wavenet import WaveNet
 from mel2samp_onehot import Mel2SampOnehot
 from utils import to_gpu, mu_law_decode_numpy, print_etr
+from audio_data import WavenetDataset
 
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
@@ -115,15 +116,22 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
                                                       optimizer)
         iteration += 1  # next iteration is iteration + 1
 
-    trainset = Mel2SampOnehot(**data_config)
-    # =====START: ADDED FOR DISTRIBUTED======
-    train_sampler = DistributedSampler(trainset) if num_gpus > 1 else None
-    # =====END:   ADDED FOR DISTRIBUTED======
-    train_loader = DataLoader(trainset, num_workers=1, shuffle=False,
-                              sampler=train_sampler,
-                              batch_size=batch_size,
-                              pin_memory=False,
-                              drop_last=True)
+    print(f"receptive_field: {model.receptive_field()}")
+    trainset = WavenetDataset(
+        dataset_file='data/dataset.npz',
+        item_length=model.receptive_field() + 1000 + model.output_length - 1,
+        target_length=model.output_length,
+        file_location='data/',
+        test_stride=500,
+    )
+    print(trainset._length)
+    print('the dataset has ' + str(len(trainset)) + ' items')
+    train_loader = DataLoader(
+        trainset,
+        batch_size=batch_size,
+        shuffle=True,
+        pin_memory=False,
+    )
 
     # Get shared output_directory ready
     if rank == 0:
@@ -140,20 +148,11 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
         print("Epoch: {}".format(epoch))
         for i, batch in enumerate(train_loader):
             model.zero_grad()
-            
-            x, y = batch
-            # print(x)
-            # print("shapes")
-            # print(x.shape, y.shape)
-            x = to_gpu(x).float()
-            y = to_gpu(y)
-            x = (x, y)  # auto-regressive takes outputs as inputs
-            y_pred = model(x)
-            loss = criterion(y_pred, y)
-            # if num_gpus > 1:
-            #     reduced_loss = reduce_tensor(loss.data, num_gpus)[0]
-            # else:
-            #     reduced_loss = loss.data[0]
+            y, target = batch
+            y = to_gpu(y).float()
+            target = to_gpu(target)
+            y_pred = model((None, y))
+            loss = criterion(y_pred[:, :, -model.output_length:], target)
             loss.backward()
             optimizer.step()
 
@@ -161,21 +160,24 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
             print_etr(
                 start,
                 total_iterations = (epochs-epoch_offset)*len(train_loader),
-                current_iteration = (epochs-epoch_offset)*(epoch-epoch_offset) + i + 1
+                current_iteration = epoch*len(train_loader) + i + 1
             )
-            print(total_iterations, current_iteration)
             writer.add_scalar('Loss/train', loss, global_step=iteration)
-            # writer.flush()
 
             if (iteration % iters_per_checkpoint == 0):
                 y_choice = y_pred[0].detach().cpu().transpose(0, 1)
                 y_prob = F.softmax(y_choice, dim=1)
                 y_prob_collapsed = torch.multinomial(y_prob, num_samples = 1).squeeze(1)
                 y_pred_audio = mu_law_decode_numpy(y_prob_collapsed.numpy(), model.n_out_channels)
+                import torchaudio
+                y_audio = mu_law_decode_numpy(y.numpy(), model.n_out_channels)
+                torchaudio.save("test_in.wav", torch.tensor(y_audio), 16000)
+                torchaudio.save("test_out.wav", torch.tensor(y_pred_audio), 16000)
                 writer.add_audio('Audio', y_pred_audio, global_step=iteration, sample_rate=data_config['sampling_rate'])
                 checkpoint_path = "{}/wavenet_{}".format(output_directory, iteration)
                 save_checkpoint(model, optimizer, learning_rate, iteration, checkpoint_path)
                      
+            writer.flush()
             iteration += 1
 
 if __name__ == "__main__":

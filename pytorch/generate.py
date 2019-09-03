@@ -33,7 +33,7 @@ def main(audio_file_path, model_filename, output_path):
     first_audio_data = utils.mu_law_encode(first_audio_data / utils.MAX_WAV_VALUE, 256)
     print("first_audio_data.shape", first_audio_data.shape)
     print("first_audio_data.shape", first_audio_data.dtype)
-    audio_data = model.generate(first_samples = first_audio_data, num_samples=1000)
+    audio_data = model.generate(first_samples = first_audio_data, num_samples=1000, receptive_field=6000)
     np.savetxt("audio_data.txt", audio_data.numpy().astype(int), fmt='%d')
     # for i, file_path in enumerate(files):
     # file_name = os.path.splitext(os.path.basename(file_path))[0]

@@ -89,6 +89,7 @@ class WaveNet(torch.nn.Module):
                                  bias=False, w_init_gain='relu')
         self.conv_end = Conv(n_out_channels, n_out_channels,
                                  bias=False, w_init_gain='linear')
+        self.output_length = 16
 
         loop_factor = math.floor(math.log2(max_dilation)) + 1
         for i in range(n_layers):
@@ -110,9 +111,15 @@ class WaveNet(torch.nn.Module):
                                   w_init_gain='relu')
             self.skip_layers.append(skip_layer)
 
+    def receptive_field(self):
+        receptive_field = 0
+        loop_factor = math.floor(math.log2(self.max_dilation)) + 1
+        for i in range(self.n_layers):
+            dilation = 2 ** (i % loop_factor)
+            receptive_field += dilation
+        return receptive_field
+
     def forward(self, forward_input):
-        # print("forward_input", forward_input)
-        # features = forward_input[0]
         forward_input = forward_input[1]
         # print("forward_input.shape", forward_input.shape)
         # print(forward_input[0])
@@ -125,7 +132,6 @@ class WaveNet(torch.nn.Module):
         forward_input = self.embed(forward_input.long())
         # print(forward_input.shape)
         # print(forward_input[0])
-        # print(forward_input.shape)
         forward_input = forward_input.transpose(1, 2)
        
         # cond_acts = self.cond_layers(cond_input)
@@ -159,7 +165,6 @@ class WaveNet(torch.nn.Module):
         first = last * 0.0
         output = torch.cat((first, output), dim=2)
         # print("output.shape", output.shape)
-        # print("output", output)
         return output
 
     def generate(self,
@@ -169,7 +174,7 @@ class WaveNet(torch.nn.Module):
                  receptive_field=None):
         self.eval()
         if receptive_field is None:
-            receptive_field = self.max_dilation * 2
+            receptive_field = self.receptive_field()
         if first_samples is None:
             first_samples = torch.zeros([1], dtype=torch.long)
         with torch.no_grad():
@@ -189,18 +194,16 @@ class WaveNet(torch.nn.Module):
             # input = Variable(torch.FloatTensor(1, self.classes, self.receptive_field).zero_())
             # input = input.scatter_(1, generated[-self.receptive_field:].view(1, -1, self.receptive_field), 1.)
             input = generated[-receptive_field:].view(1, receptive_field)
-
+            # print("input.shape", input.shape)
             with torch.no_grad():
                 x = self((None, input))[:, :, -1].squeeze()
-
             if temperature > 0:
                 x /= temperature
                 prob = F.softmax(x, dim=0).cpu().numpy()
                 x = np.random.choice(self.n_out_channels, p=prob)
-                x = torch.tensor([x], dtype=torch.long)#np.array([x])
             else:
-                x = torch.max(x, 0)[1].long()
-            generated = torch.cat((generated, x), 0)
+                x = torch.max(x, 0)[1]
+            generated = torch.cat((generated, torch.tensor([x], dtype=torch.long)), 0)
 
         # generated = (generated.double() / self.classes) * 2. - 1.
         # mu_gen = mu_law_expansion(generated.double(), self.classes)
